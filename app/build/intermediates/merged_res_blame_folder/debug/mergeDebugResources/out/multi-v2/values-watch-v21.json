@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.alebrije.voleibol.app-mergeDebugResources-71:/values-watch-v21/values-watch-v21.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\c\\.gradle\\caches\\9.0.0\\transforms\\210ce6b30b5e2ff22d1055aab673da17\\transformed\\appcompat-1.7.0\\res\\values-watch-v21\\values-watch-v21.xml",
+                    "from": {
+                        "startLines": "2,6,10",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "55,271,499",
+                        "endLines": "5,9,13",
+                        "endColumns": "12,12,12",
+                        "endOffsets": "266,494,724"
+                    }
+                }
+            ]
+        }
+    ]
+}
