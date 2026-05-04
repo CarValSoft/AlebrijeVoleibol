@@ -1,6 +1,54 @@
 [
     {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_golpeo.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/golpeo.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_golpe.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/golpe.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_barrida.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/barrida.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_bg_music.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/bg_music.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_loos.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/loos.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_red.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/red.mp3"
+    },
+    {
         "merged": "com.alebrije.voleibol.app-debug-73:/drawable_ic_alebrije_ball.xml.flat",
         "source": "com.alebrije.voleibol.app-main-75:/drawable/ic_alebrije_ball.xml"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_toque.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/toque.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_suelo.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/suelo.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_looser.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/looser.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_winner.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/winner.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_saque.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/saque.mp3"
+    },
+    {
+        "merged": "com.alebrije.voleibol.app-debug-73:/raw_win.mp3.flat",
+        "source": "com.alebrije.voleibol.app-main-75:/raw/win.mp3"
     }
 ]

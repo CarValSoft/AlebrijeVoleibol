@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -64,6 +65,8 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import android.media.MediaPlayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -107,14 +110,48 @@ private fun AlebrijeApp() {
     var difficulty by remember { mutableStateOf("fácil") }
     var playerScore by remember { mutableIntStateOf(0) }
     var enemyScore by remember { mutableIntStateOf(0) }
+    var isMusicMuted by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val soundManager = remember { SoundManager(context) }
+
+    LaunchedEffect(isMusicMuted, screen) {
+        if (isMusicMuted || screen == Screen.COURT) {
+            soundManager.stopMusic()
+        } else {
+            soundManager.startMusic()
+        }
+    }
 
     MaterialTheme {
-        when (screen) {
-            Screen.MENU -> MainMenu(onOnline = { mode = GameMode.ONLINE; screen = Screen.MATCHMAKING }, onOffline = { mode = GameMode.OFFLINE; screen = Screen.DIFFICULTY })
-            Screen.MATCHMAKING -> MatchmakingScreen(onMatched = { screen = Screen.COURT })
-            Screen.DIFFICULTY -> DifficultyScreen(onSelected = { difficulty = it; screen = Screen.COURT })
-            Screen.COURT -> CourtScreen(mode = mode, difficulty = difficulty, onFinish = { me, enemy -> playerScore = me; enemyScore = enemy; screen = Screen.RESULT })
-            Screen.RESULT -> ResultScreen(playerScore = playerScore, enemyScore = enemyScore, onHome = { screen = Screen.MENU })
+        Box(modifier = Modifier.fillMaxSize()) {
+            when (screen) {
+                Screen.MENU -> MainMenu(
+                    onOnline = { mode = GameMode.ONLINE; screen = Screen.MATCHMAKING },
+                    onOffline = { mode = GameMode.OFFLINE; screen = Screen.DIFFICULTY }
+                )
+                Screen.MATCHMAKING -> MatchmakingScreen(onMatched = { screen = Screen.COURT })
+                Screen.DIFFICULTY -> DifficultyScreen(onSelected = { difficulty = it; screen = Screen.COURT })
+                Screen.COURT -> CourtScreen(
+                    mode = mode,
+                    difficulty = difficulty,
+                    onFinish = { me, enemy -> playerScore = me; enemyScore = enemy; screen = Screen.RESULT },
+                    soundManager = soundManager
+                )
+                Screen.RESULT -> ResultScreen(playerScore = playerScore, enemyScore = enemyScore, onHome = { screen = Screen.MENU })
+            }
+
+            if (screen != Screen.COURT) {
+                CuteButton(
+                    text = if (isMusicMuted) "🔇" else "🔊",
+                    onClick = { isMusicMuted = !isMusicMuted },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(60.dp, 56.dp),
+                    padding = PaddingValues(0.dp)
+                )
+            }
         }
     }
 }
@@ -159,12 +196,15 @@ private fun DifficultyScreen(onSelected: (String) -> Unit) {
 }
 
 @Composable
-private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int) -> Unit) {
+private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int) -> Unit, soundManager: SoundManager) {
     val context = LocalContext.current
-    val soundManager = remember { SoundManager(context) }
     val haptics = remember { HapticManager(context) }
     var playerScore by remember { mutableIntStateOf(0) }
     var enemyScore by remember { mutableIntStateOf(0) }
+    var p1Touches by remember { mutableIntStateOf(0) }
+    var p2Touches by remember { mutableIntStateOf(0) }
+    var lastPointWinner by remember { mutableIntStateOf(0) } // 1: P1, 2: P2
+    var scoreEffectTimer by remember { mutableFloatStateOf(0f) }
     var showSettings by remember { mutableStateOf(false) }
 
     var ballPos by remember { mutableStateOf(Offset(0f, 0f)) }
@@ -193,12 +233,13 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
     val clouds = remember { mutableStateListOf<Cloud>() }
     val palms = remember { mutableStateListOf<Palm>() }
     val particles = remember { mutableStateListOf<Particle>() }
+    val confetti = remember { mutableStateListOf<Particle>() }
     var netVibration by remember { mutableFloatStateOf(0f) }
     var audiencePulse by remember { mutableFloatStateOf(0f) }
 
-    if (playerScore >= 15 || enemyScore >= 15) {
+    if (playerScore >= 3 || enemyScore >= 3) {
         DisposableEffect(Unit) {
-            if (playerScore >= 15) soundManager.play("winner") else soundManager.play("looser")
+            if (playerScore >= 3) soundManager.play("winner") else soundManager.play("looser")
             onFinish(playerScore, enemyScore)
             onDispose { }
         }
@@ -208,11 +249,16 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
         val width = constraints.maxWidth.toFloat(); val height = constraints.maxHeight.toFloat()
         val floorY = height * 0.9f; val netWidth = 15f; val netHeight = 150f
         val ballRadius = 95f; val playerSize = 140f
+        val beachHeight = 200f // Altura de la arena mayor que la red (150f)
 
         LaunchedEffect(width) {
-            repeat(6) { clouds.add(Cloud(Random.nextFloat()*width, Random.nextFloat()*height*0.25f, Random.nextFloat()*15f+10f, Random.nextFloat()*20f+40f, Random.nextInt(3))) }
-            palms.add(Palm(width*0.05f, floorY, 220f, -8f, 0))
-            palms.add(Palm(width*0.95f, floorY, 200f, 6f, 1))
+            if (clouds.isEmpty()) {
+                repeat(6) { clouds.add(Cloud(Random.nextFloat()*width, Random.nextFloat()*height*0.25f, Random.nextFloat()*15f+10f, Random.nextFloat()*20f+40f, Random.nextInt(3))) }
+            }
+            if (palms.isEmpty()) {
+                palms.add(Palm(width*0.05f, floorY - beachHeight, 220f, -8f, 0))
+                palms.add(Palm(width*0.95f, floorY - beachHeight, 200f, 6f, 1))
+            }
         }
 
         LaunchedEffect(width, height) {
@@ -225,18 +271,30 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
             while (true) {
                 withFrameNanos { frameTime ->
                     val dt = (frameTime - lastFrameTime) / 1_000_000_000f; lastFrameTime = frameTime
-                    val gravity = 2500f; val baseMoveSpeed = 1815f; val jumpImpulse = -1400f
+                    val gravity = 3281f; // 4375f * 0.75 = 3281f (25% menos peso/gravedad)
+                    val baseMoveSpeed = 1815f; val jumpImpulse = -1590f // Ajustado para gravedad menor (sqrt(0.75) * 1838)
 
-                    audiencePulse = (audiencePulse + dt * 2f) % (Math.PI.toFloat() * 2f)
+                    audiencePulse += dt * 2f
+                    if (scoreEffectTimer > 0f) scoreEffectTimer -= dt
 
                     if (serveWaitTimer > 0) {
                         serveWaitTimer -= dt
-                        if (serveWaitTimer <= 0 && serveState == 0) { serveState = 1; ballVel = Offset(Random.nextFloat()*140f-70f, -400f) }
+                        if (serveWaitTimer <= 0 && serveState == 0) { 
+                            serveState = 1; 
+                            ballVel = Offset(Random.nextFloat()*70f-35f, -600f) // 140->70, 1200->600 (50% más lento)
+                            soundManager.play("saque")
+                            p1Touches = 0; p2Touches = 0
+                        }
                     }
 
+                    val ballOnLeftPrev = ballPos.x < width / 2
                     if (serveState > 0 || serveWaitTimer <= 0) {
                         ballVel = ballVel.copy(y = ballVel.y + gravity * dt); ballPos += ballVel * dt
                         ballRotX += ballVel.x * dt * 0.06f; ballRotY += ballVel.y * dt * 0.03f
+                    }
+                    val ballOnLeftNow = ballPos.x < width / 2
+                    if (ballOnLeftPrev != ballOnLeftNow) {
+                        if (ballOnLeftNow) p2Touches = 0 else p1Touches = 0
                     }
 
                     if (ballPos.x < ballRadius) { ballPos = ballPos.copy(x = ballRadius); ballVel = ballVel.copy(x = -ballVel.x * 0.8f) }
@@ -244,7 +302,15 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                     if (ballPos.y < ballRadius) { ballPos = ballPos.copy(y = ballRadius); ballVel = ballVel.copy(y = -ballVel.y * 0.8f) }
 
                     if (ballPos.y > floorY - ballRadius) {
-                        if (ballPos.x < width / 2) enemyScore++ else playerScore++
+                        if (ballPos.x < width / 2) {
+                            enemyScore++; lastPointWinner = 2; soundManager.play("loos")
+                            spawnConfetti(confetti, width * 0.55f, width * 0.9f, floorY - 100f)
+                        } else {
+                            playerScore++; lastPointWinner = 1; soundManager.play("win")
+                            spawnConfetti(confetti, width * 0.1f, width * 0.45f, floorY - 100f)
+                        }
+                        scoreEffectTimer = 1.0f
+                        p1Touches = 0; p2Touches = 0
                         soundManager.play("suelo"); haptics.vibrate(100); spawnParticles(particles, ballPos, Color.White)
                         val winnerLeft = ballPos.x > width / 2; ballPos = if (winnerLeft) Offset(width * 0.25f, 200f) else Offset(width * 0.75f, 200f)
                         ballVel = Offset.Zero; ballRotX = 0f; ballRotY = 0f; serveWaitTimer = 2.5f; serveState = 0
@@ -253,12 +319,13 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                     val netRectLeft = width / 2 - netWidth / 2; val netRectRight = width / 2 + netWidth / 2; val netRectTop = floorY - netHeight
                     if (ballPos.x + ballRadius > netRectLeft && ballPos.x - ballRadius < netRectRight && ballPos.y + ballRadius > netRectTop) {
                         netVibration = 1.0f
+                        soundManager.play("red")
                         if (ballPos.y > netRectTop + 10f) { ballVel = ballVel.copy(x = -ballVel.x * 0.5f); ballPos = ballPos.copy(x = if (ballPos.x < width / 2) netRectLeft - ballRadius else netRectRight + ballRadius) }
                         else { ballVel = ballVel.copy(y = -ballVel.y * 0.8f); ballPos = ballPos.copy(y = netRectTop - ballRadius) }
                     }
 
                     if (p1SlideTimer > 0) p1SlideTimer -= dt
-                    val moveSpeed = if (p1SlideTimer > 0) baseMoveSpeed * 1.3f else baseMoveSpeed
+                    val moveSpeed = if (p1SlideTimer > 0) baseMoveSpeed * 3.5f else baseMoveSpeed // 2.2f -> 3.5f para 70% cancha
                     val targetP1VelX = p1MoveVector.x * moveSpeed
                     p1Vel = p1Vel.copy(x = p1Vel.x + (targetP1VelX - p1Vel.x) * 12f * dt)
                     if (p1MoveVector.y < -0.3f && p1Pos.y >= floorY - playerSize/2 - 5f) p1Vel = p1Vel.copy(y = jumpImpulse)
@@ -268,9 +335,19 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                     if (abs(p1Vel.x) > 10f && p1Pos.y >= floorY - playerSize/2 - 1f) p1WalkCycle += abs(p1Vel.x) * dt * 0.05f
                     if (p1StrikeAnim > 0f) p1StrikeAnim -= dt * 4f
 
-                    val aiSpeed = when(difficulty.lowercase()) { "fácil" -> 450f; "medio" -> 800f; else -> 1250f }
+                    val aiSpeed = when(difficulty.lowercase()) { "fácil" -> 540f; "medio" -> 960f; else -> 1500f }
                     var predictedX = ballPos.x
                     if (ballVel.y > 0) { val timeToLand = (floorY - ballPos.y) / (ballVel.y + 1f); predictedX = ballPos.x + ballVel.x * timeToLand }
+                    
+                    // IA con barridas salvadoras
+                    val aiCanSlide = p2Pos.y >= floorY - playerSize/2 - 5f
+                    if (ballPos.x > width / 2 && aiCanSlide && abs(ballPos.x - p2Pos.x) > 200f && abs(ballPos.x - p2Pos.x) < 500f && ballPos.y > floorY - 300f) {
+                        if (Random.nextFloat() < 0.05f) {
+                            p2Vel = p2Vel.copy(x = (ballPos.x - p2Pos.x).coerceIn(-1f, 1f) * baseMoveSpeed * 3.5f)
+                            soundManager.play("barrida")
+                        }
+                    }
+
                     predictedX = predictedX.coerceIn(width/2 + netWidth/2 + playerSize/2, width - playerSize/2)
                     val aiTargetX = if (ballPos.x > width * 0.4f) predictedX else width * 0.75f
                     val aiDiffX = aiTargetX - p2Pos.x
@@ -284,22 +361,45 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                     p2Pos = p2Pos.copy(x = p2Pos.x.coerceIn(width/2 + netWidth/2 + playerSize/2, width - playerSize/2))
                     if (abs(p2Vel.x) > 10f && p2Pos.y >= floorY - playerSize/2 - 1f) p2WalkCycle += abs(p2Vel.x) * dt * 0.05f
 
-                    val hitRange = ballRadius + playerSize/2 + 100f
+                    val hitRange = ballRadius + playerSize/2 + 30f // Reducido de +100f a +30f para mayor precisión
                     fun checkCollision(pPos: Offset, isP1: Boolean, pVel: Offset) {
                         val dx = ballPos.x - pPos.x; val dy = ballPos.y - pPos.y; val dist = sqrt(dx*dx + dy*dy)
                         if (dist < hitRange) {
-                            val strike = if (isP1) p1StrikeVector else Offset((width*0.2f - ballPos.x)*0.05f, (floorY*0.5f - ballPos.y)*0.05f)
-                            val force = strike.getDistance(); val isS = force > 30f
+                            if (!isP1 && p2Touches >= 4) return // Límite de 4 toques para el rival
+                            val strike = if (isP1) p1StrikeVector else {
+                                // IA: Menos desesperada
+                                val remaining = 4 - p2Touches
+                                val aggressiveness = when(remaining) {
+                                    1 -> 1.8f // Reducido de 2.5f
+                                    2 -> 1.4f // Reducido de 1.8f
+                                    else -> 1.2f
+                                }
+                                // Apuntar intencionalmente al campo contrario (lado izquierdo)
+                                val targetX = width * Random.nextFloat() * 0.4f 
+                                Offset((targetX - ballPos.x) * aggressiveness, (floorY * 0.2f - ballPos.y) * aggressiveness)
+                            }
+                            val force = strike.getDistance(); val isS = if (isP1) force > 30f else force > 10f
                             if (isP1 && isS) { p1StrikeAnim = 1.0f; p1StrikeDir = strike; strikeForceIndicator = (force / 500f).coerceIn(0f, 1f) }
-                            val vImp = if (isS) -1000f else -600f; val fFact = if (isS) 1.0f else 0.5f
-                            ballVel = Offset((dx * 12f + strike.x * 6f + pVel.x * 0.6f) * fFact, (vImp + strike.y * 6f + pVel.y * 0.4f) * fFact)
+                            
+                            // Aumentamos fFact para la IA para que la pelota cruce más rápido
+                            val vImp = if (isS) -1500f else -900f
+                            val fFact = if (isP1) (if (isS) 0.75f else 0.4f) else (if (isS) 1.2f else 0.8f)
+
+                            ballVel = Offset((dx * 6f + strike.x * 3f + pVel.x * 0.3f) * fFact, (vImp + strike.y * 3f + pVel.y * 0.2f) * fFact)
                             soundManager.play(if (isS) "golpeo" else "golpe"); spawnParticles(particles, ballPos, if (isP1) Color(0xFFEF476F) else Color(0xFF2EC4B6))
-                            ballPos = pPos + Offset(dx/dist, dy/dist) * hitRange // Force ejection to avoid sticking
+                            if (isP1) p1Touches++ else p2Touches++
+                            
+                            // Expulsión más agresiva para evitar que la pelota se quede pegada
+                            val normal = Offset(dx/dist, dy/dist)
+                            ballPos = pPos + normal * (hitRange + 20f) 
+                            // Aseguramos que la velocidad vertical sea hacia arriba si el golpe es desde arriba
+                            if (ballVel.y > -200f) ballVel = ballVel.copy(y = -400f)
                         }
                     }
                     checkCollision(p1Pos, true, p1Vel); checkCollision(p2Pos, false, p2Vel)
 
                     particles.forEach { it.update(dt) }; particles.removeAll { it.life <= 0 }
+                    confetti.forEach { it.update(dt) }; confetti.removeAll { it.life <= 0 }
                     clouds.forEach { it.update(dt, width) }
                     if (strikeForceIndicator > 0f) strikeForceIndicator -= dt * 0.5f
                     if (netVibration > 0f) netVibration -= dt * 5f
@@ -308,19 +408,68 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
         }
 
         Canvas(modifier = Modifier.fillMaxSize()) {
-            clouds.forEach { drawCloud(Offset(it.x, it.y), it.size, it.variant) }
-            palms.forEach { drawPalm(Offset(it.x, it.y), it.height, it.tilt, it.variant) }
-            
-            // Audience Bleachers
-            drawBleachers(width, height, floorY, audiencePulse)
+            val canvasWidth = size.width
+            val canvasHeight = size.height
+            // Sky Gradient Texture
+            drawRect(Brush.verticalGradient(listOf(Color(0xFF6EC6FF), Color(0xFFB3E5FC))), Offset.Zero, size)
+            for(i in 0..20) {
+                val y = i * (canvasHeight / 20f)
+                drawLine(Color.White.copy(0.05f), Offset(0f, y), Offset(canvasWidth, y), 1f)
+            }
 
-            drawRect(Color(0xFFDEB887), Offset(0f, floorY), androidx.compose.ui.geometry.Size(width, height - floorY)) // Darker original
-            drawRect(Color(0xFFDEB887).copy(alpha = 0.6f), Offset(width * 0.1f, floorY), androidx.compose.ui.geometry.Size(width * 0.8f, height - floorY)) // Lighter original
-            drawLine(Color.White, Offset(0f, floorY + 5f), Offset(width, floorY + 5f), 5f)
-            drawLine(Color.White, Offset(width*0.1f, floorY), Offset(width*0.1f, height), 5f)
-            drawLine(Color.White, Offset(width*0.9f, floorY), Offset(width*0.9f, height), 5f)
+            drawActiveSea(width, height, floorY - beachHeight, audiencePulse)
+            
+            // Arena/Playa amplia que divide el mar de la cancha
+            drawTexturedRect(Color(0xFFF5DEB3), Offset(0f, floorY - beachHeight), androidx.compose.ui.geometry.Size(width, beachHeight), 99)
+
+            // Audience Bleachers y Palmas encima de la arena
+            drawBleachers(width, height, floorY - beachHeight, audiencePulse)
+            palms.forEach { drawPalm(Offset(it.x, it.y), it.height, it.tilt, it.variant) }
+
+            // Suelo de la cancha (Cancha completa beige claro)
+            val canchaColor = Color(0xFFF5F5DC) // Beige claro (Beige)
+            drawTexturedRect(canchaColor, Offset(0f, floorY), androidx.compose.ui.geometry.Size(width, height - floorY), 20)
+
+            // Líneas de la cancha
+            drawLine(Color.White, Offset(0f, floorY + 5f), Offset(width, floorY + 5f), 5f) // Línea base
+            drawLine(Color.White, Offset(width/2f, floorY), Offset(width/2f, height), 5f) // Línea Central (bajo la red)
+
             val vibX = sin(netVibration * 30f) * 10f * netVibration
-            drawRect(Color.White, Offset(width/2 - netWidth/2 + vibX, floorY - netHeight), androidx.compose.ui.geometry.Size(netWidth, netHeight))
+            val netTop = floorY - netHeight
+            drawRect(Color(0xFF555555), Offset(width/2 - netWidth/2 + vibX, netTop), androidx.compose.ui.geometry.Size(netWidth, netHeight))
+            
+            // 3 Líneas verticales desde el tope de la red hasta el fondo (Dibujadas después para estar encima)
+            val lineX = width/2 + vibX
+            val bottomY = size.height
+            val dashColor = Color(0xFF777777) // Un poco más claro que la red para que se noten encima
+            // Round Dot
+            drawLine(
+                color = dashColor,
+                start = Offset(lineX - 3f, netTop),
+                end = Offset(lineX - 3f, bottomY),
+                strokeWidth = 2f,
+                cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(1f, 10f), 0f)
+            )
+            // Square Dot
+            drawLine(
+                color = dashColor,
+                start = Offset(lineX, netTop),
+                end = Offset(lineX, bottomY),
+                strokeWidth = 2f,
+                cap = StrokeCap.Butt,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(1f, 10f), 0f)
+            )
+            // Dash Dot
+            drawLine(
+                color = dashColor,
+                start = Offset(lineX + 3f, netTop),
+                end = Offset(lineX + 3f, bottomY),
+                strokeWidth = 2f,
+                cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 5f, 2f, 5f), 0f)
+            )
+            
             if (strikeForceIndicator > 0.01f) {
                 drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Yellow, Color.Red)), Offset(width/2 - netWidth/2 + vibX, floorY - netHeight * strikeForceIndicator), androidx.compose.ui.geometry.Size(netWidth, netHeight * strikeForceIndicator))
             }
@@ -332,10 +481,26 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
             drawAlebrije(p1Pos, playerSize, Color(0xFFEF476F), p1WalkCycle, p1Vel.x > 0, p1StrikeAnim, p1StrikeDir, p1SlideTimer)
             drawAlebrije(p2Pos, playerSize, Color(0xFF2EC4B6), p2WalkCycle, p2Vel.x > 0, 0f, Offset.Zero, 0f)
             particles.forEach { drawCircle(it.color.copy(it.life), it.size, it.pos) }
+            confetti.forEach { drawRect(it.color.copy(it.life.coerceIn(0f, 1f)), it.pos, androidx.compose.ui.geometry.Size(12f, 12f)) }
+            clouds.forEach { drawCloud(Offset(it.x, it.y), it.size, it.variant) }
         }
 
         Box(modifier = Modifier.fillMaxSize().zIndex(10f)) {
-            Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).background(Color(0xFFE5D5B0), RoundedCornerShape(14.dp)).padding(3.dp).background(Color(0xFF282828), RoundedCornerShape(11.dp)).padding(horizontal = 28.dp, vertical = 10.dp)) {
+            val destelloColor = if (scoreEffectTimer > 0f) {
+                if (lastPointWinner == 1) Color.Green.copy(scoreEffectTimer * 0.4f)
+                else Color.Red.copy(scoreEffectTimer * 0.4f)
+            } else Color.Transparent
+
+            Box(modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 22.dp)
+                .background(destelloColor, RoundedCornerShape(14.dp))
+                .padding(6.dp)
+                .background(Color(0xFFE5D5B0), RoundedCornerShape(14.dp))
+                .padding(3.dp)
+                .background(Color(0xFF282828), RoundedCornerShape(11.dp))
+                .padding(horizontal = 28.dp, vertical = 10.dp)
+            ) {
                 Text("${playerScore} - ${enemyScore}", fontSize = 36.sp, color = Color(0xFFFFD166), fontWeight = FontWeight.Black)
             }
             CuteButton(text = "⚙", onClick = { showSettings = !showSettings }, modifier = Modifier.align(Alignment.TopStart).padding(12.dp).size(60.dp, 42.dp).zIndex(999f), padding = PaddingValues(horizontal = 5.dp, vertical = 2.dp))
@@ -352,6 +517,9 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                 val activeTouches = mutableMapOf<PointerId, Offset>()
                 while (true) {
                     val event = awaitPointerEvent()
+                    // Consumir el evento para intentar evitar que el sistema lo interprete como gestos de navegación
+                    event.changes.forEach { it.consume() }
+                    
                     event.changes.forEach { pointer ->
                         if (pointer.pressed) {
                             val pos = pointer.position
@@ -383,6 +551,51 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
     }
 }
 
+private fun DrawScope.drawTexturedRect(color: Color, offset: Offset, size: androidx.compose.ui.geometry.Size, seed: Int = 0) {
+    drawRect(color, offset, size)
+    val random = Random(seed)
+    val lineCount = (size.height / 4f).toInt().coerceIn(5, 100)
+    for (i in 0 until lineCount) {
+        val y = offset.y + (size.height / lineCount) * i
+        val thickness = random.nextFloat() * 2f + 1f
+        val alpha = random.nextFloat() * 0.15f + 0.05f
+        val lColor = if (color.luminance() > 0.5f) Color.Black.copy(alpha) else Color.White.copy(alpha)
+        drawLine(lColor, Offset(offset.x, y), Offset(offset.x + size.width, y + (random.nextFloat() - 0.5f) * 2f), thickness)
+    }
+}
+
+private fun DrawScope.drawActiveSea(w: Float, h: Float, floorY: Float, time: Float) {
+    val seaColor = Color(0xFF008B99)
+    val seaTop = floorY - 100f // Ajustado para arena mayor
+    
+    // Base Sea with texture
+    drawTexturedRect(seaColor, Offset(0f, seaTop), androidx.compose.ui.geometry.Size(w, h - seaTop), 42)
+    
+    // Waves
+    for (i in 0..2) {
+        val waveAlpha = 0.3f - i * 0.1f
+        val waveColor = Color.White.copy(alpha = waveAlpha)
+        val path = Path()
+        path.moveTo(0f, seaTop + i * 15f)
+        for (x in 0..w.toInt() step 20) {
+            val waveHeight = sin(x * 0.01f + time * 0.5f + i) * 15f // Velocidad neutralizada (2f -> 0.5f)
+            path.lineTo(x.toFloat(), seaTop + waveHeight + i * 15f)
+        }
+        path.lineTo(w, h)
+        path.lineTo(0f, h)
+        path.close()
+        drawPath(path, waveColor)
+        
+        // Sea strokes like the image
+        for (j in 0..5) {
+            val strokeY = seaTop + 30f + j * 40f + sin(time * 0.5f + j) * 10f
+            val strokeWidth = 100f + sin(time * 0.2f + j) * 50f
+            val strokeX = (time * 25f + j * 200f) % (w + 200f) - 100f // Velocidad neutralizada (100f -> 25f)
+            drawLine(Color.White.copy(0.1f), Offset(strokeX, strokeY), Offset(strokeX + strokeWidth, strokeY), 2f, StrokeCap.Round)
+        }
+    }
+}
+
 private class Cloud(var x: Float, var y: Float, val speed: Float, val size: Float, val variant: Int) {
     fun update(dt: Float, width: Float) { x += speed * dt; if (x > width + size * 3) x = -size * 3 }
 }
@@ -390,7 +603,10 @@ private class Palm(val x: Float, val y: Float, val height: Float, val tilt: Floa
 
 private fun DrawScope.drawPalm(pos: Offset, h: Float, tilt: Float, variant: Int) {
     val leafCount = 5 + variant
-    withTransform({ translate(pos.x, pos.y); rotate(tilt, Offset.Zero) }) {
+    withTransform({ 
+        translate(pos.x, pos.y)
+        rotate(tilt, Offset.Zero) 
+    }) {
         drawLine(Color(0xFF5D2E0A), Offset.Zero, Offset(0f, -h), 22f, StrokeCap.Round)
         for (i in 0 until leafCount) {
             val rad = Math.toRadians((i * (180f/leafCount) - 135f + (variant * 15f)).toDouble())
@@ -407,65 +623,174 @@ private fun DrawScope.drawCloud(pos: Offset, size: Float, variant: Int) {
 }
 
 private fun DrawScope.drawBleachers(w: Float, h: Float, floorY: Float, pulse: Float) {
-    val bW = w * 0.5f; val bH = 120f; val bX = w / 2 - bW / 2; val bY = floorY - bH
-    drawRect(Color(0xFF5A5A5A), Offset(bX, bY), androidx.compose.ui.geometry.Size(bW, bH))
-    for (row in 0..2) {
-        val rowY = bY + row * 40f
-        for (i in 0..10) {
-            val audienceX = bX + 20f + i * (bW - 40f) / 10f
-            val jump = sin(pulse + i + row) * 10f
-            drawCircle(Color(Random(i).nextInt()), 12f, Offset(audienceX, rowY + jump))
+    val bW = w * 0.35f; val bH = 100f
+    val bleacherColor = Color.White
+    
+    // Dos gradas blancas con bordes grises
+    listOf(w * 0.1f, w * 0.55f).forEachIndexed { idx, bX ->
+        val borderColor = if (idx == 0) Color(0xFFD3D3D3) else Color(0xFFA9A9A9)
+        val rect = androidx.compose.ui.geometry.Rect(bX, floorY - 50f, bX + bW, floorY - 50f + bH)
+        
+        drawRect(bleacherColor, rect.topLeft, rect.size)
+        drawRect(borderColor, rect.topLeft, rect.size, style = Stroke(4f))
+        
+        // Público de alebrijes complejos
+        for (row in 0..1) {
+            val rowY = floorY - 50f + row * 40f
+            for (i in 0..6) {
+                val audienceX = bX + 30f + i * (bW - 60f) / 6f
+                val phase = i * 0.5f + row * 1.2f + idx * 2.5f
+                val jump = sin(pulse * (1.2f + (i % 3) * 0.2f) + phase) * (10f + (row * 5f))
+                val randomSeed = (i + row * 10 + idx * 100).toLong()
+                val alebrijeColor = Color(Random(randomSeed).nextInt()).copy(alpha = 1f)
+                
+                // Dibujar alebrijes (Cabeza, cuerpo, pies, manos)
+                drawAlebrije(
+                    pos = Offset(audienceX, rowY + jump),
+                    size = 40f,
+                    color = alebrijeColor,
+                    walk = pulse + i,
+                    faceR = i % 2 == 0,
+                    sAnim = 0f,
+                    sDir = Offset.Zero,
+                    slide = 0f,
+                    cheer = pulse * 2f + i // Mayor frecuencia para alentar
+                )
+            }
         }
     }
 }
 
-private fun DrawScope.drawAlebrije(pos: Offset, size: Float, color: Color, walk: Float, faceR: Boolean, sAnim: Float, sDir: Offset, slide: Float) {
-    withTransform({ translate(pos.x, pos.y); scale(if (faceR) 1f else -1f, 1f, Offset.Zero) }) {
+private fun DrawScope.drawAlebrije(pos: Offset, size: Float, color: Color, walk: Float, faceR: Boolean, sAnim: Float, sDir: Offset, slide: Float, cheer: Float = 0f) {
+    withTransform({ 
+        translate(pos.x, pos.y)
+        scale(if (faceR) 1f else -1f, 1f, Offset.Zero) 
+    }) {
         val sF = sDir.getDistance().coerceIn(0f, 120f); val bT = if (sAnim > 0) (sDir.x / 8f) * sAnim else if (slide > 0) 30f else 0f
         withTransform({ rotate(bT, Offset.Zero) }) {
             val shake = if (sAnim > 0) sin(sAnim * 35f) * 10f else 0f
-            translate(shake, 0f) { drawCircle(color, size * 0.43f, Offset.Zero); drawCircle(color, size * 0.27f, Offset(0f, -size * 0.55f)); drawCircle(Color.White, size * 0.05f, Offset(size * 0.1f, -size * 0.58f)); drawCircle(Color.Black, size * 0.02f, Offset(size * 0.12f, -size * 0.58f)) }
+            translate(shake, 0f) { 
+                drawCircle(color, size * 0.43f, Offset.Zero) // Cuerpo
+                // Character Texture
+                for(i in 0..5) {
+                    val angle = i * 60f
+                    val rx = cos(Math.toRadians(angle.toDouble())).toFloat() * size * 0.3f
+                    val ry = sin(Math.toRadians(angle.toDouble())).toFloat() * size * 0.3f
+                    drawLine(Color.White.copy(0.15f), Offset(rx - 10f, ry), Offset(rx + 10f, ry), 2f)
+                }
+                drawCircle(color, size * 0.27f, Offset(0f, -size * 0.55f)) // Cabeza
+                drawCircle(Color.White, size * 0.05f, Offset(size * 0.1f, -size * 0.58f)) // Ojo
+                drawCircle(Color.Black, size * 0.02f, Offset(size * 0.12f, -size * 0.58f)) 
+            }
         }
         val legS = if (sAnim > 0) sin(sAnim * 25f) * size * 0.2f else if (slide > 0) size * 0.4f else sin(walk) * size * 0.25f
         val legY = if (slide > 0) -size * 0.2f else if (sAnim > 0.5f) -size * 0.1f * sAnim else 0f
-        drawLine(color, Offset(-size * 0.12f, size * 0.3f), Offset(-size * 0.12f + legS, size * 0.55f + legY), size * 0.15f, StrokeCap.Round)
+        drawLine(color, Offset(-size * 0.12f, size * 0.3f), Offset(-size * 0.12f + legS, size * 0.55f + legY), size * 0.15f, StrokeCap.Round) // Pies
         drawLine(color, Offset(size * 0.12f, size * 0.3f), Offset(size * 0.12f - legS, size * 0.55f + legY), size * 0.15f, StrokeCap.Round)
         
         // 1st Hand
-        val h1Off = if (sAnim > 0) Offset(sDir.x.coerceIn(-120f, 120f), sDir.y.coerceIn(-120f, 120f)) * sAnim else Offset.Zero
+        val cheerY = if (cheer > 0f) (sin(cheer) * 0.5f + 0.5f) * size * 0.8f else 0f
+        val h1Off = if (sAnim > 0) Offset(sDir.x.coerceIn(-120f, 120f), sDir.y.coerceIn(-120f, 120f)) * sAnim else Offset(0f, -cheerY)
         val aB1 = Offset(size * 0.35f, -size * 0.12f); val aE1 = Offset(size * 0.65f + h1Off.x, -size * 0.35f + h1Off.y)
         val elb1 = (aB1 + aE1) / 2f + Offset(0f, -sF * 0.25f * sAnim)
         drawLine(color, aB1, elb1, size * 0.14f, StrokeCap.Round); drawLine(color, elb1, aE1, size * 0.14f, StrokeCap.Round); drawCircle(color, size * 0.09f, aE1)
         
-        // 2nd Hand (Default down, reacts to movement/slide)
-        val h2Swing = if (slide > 0) size * 0.3f else sin(walk + 1f) * size * 0.1f
-        val aB2 = Offset(-size * 0.35f, -size * 0.12f); val aE2 = Offset(-size * 0.45f - h2Swing, size * 0.3f)
+        // 2nd Hand
+        val h2Swing = if (slide > 0) size * 0.3f else if (cheer > 0f) 0f else sin(walk + 1f) * size * 0.1f
+        val aB2 = Offset(-size * 0.35f, -size * 0.12f)
+        val aE2 = if (cheer > 0f) Offset(-size * 0.65f, -size * 0.35f - cheerY) else Offset(-size * 0.45f - h2Swing, size * 0.3f)
         drawLine(color, aB2, aE2, size * 0.12f, StrokeCap.Round); drawCircle(color, size * 0.08f, aE2)
     }
 }
 
 private fun DrawScope.drawAlebrijeBall(pos: Offset, radius: Float, rotX: Float, rotY: Float) {
-    drawCircle(Color(0xFF3AB7BF), radius, pos); drawCircle(Color(0xFFFFD166), radius * 0.84f, pos)
+    val ballColor = Color(0xFFE88EDD)
+    drawCircle(ballColor, radius, pos)
     val bPath = Path().apply { addOval(androidx.compose.ui.geometry.Rect(pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius)) }
-    withTransform({ clipPath(bPath) }) {
-        val path = Path(); val wW = radius * 0.65f; val wA = radius * 0.18f
-        val offX = (rotX * radius * 2.2f) % (wW * 2f); val offY = (rotY * radius * 1.5f)
-        for (i in -4..4) { val sX = pos.x - radius + i * wW + offX; path.moveTo(sX, pos.y + offY); path.quadraticTo(sX+wW*0.25f, pos.y-wA+offY, sX+wW*0.5f, pos.y+offY); path.quadraticTo(sX+wW*0.75f, pos.y+wA+offY, sX+wW, pos.y+offY) }
-        drawPath(path, Color(0xFFEF476F), style = Stroke(radius * 0.18f, cap = StrokeCap.Round))
+    withTransform({ 
+        clipPath(bPath)
+        rotate(rotX * 50f + rotY * 10f, pos) 
+    }) {
+        // Gajos de pelota de voley (Realista)
+        for (i in 0..2) {
+            rotate(i * 120f, pos) {
+                drawLine(Color.LightGray, pos, pos + Offset(0f, radius), 3f)
+                val curvePath = Path().apply {
+                    moveTo(pos.x - radius * 0.5f, pos.y + radius * 0.8f)
+                    quadraticTo(pos.x, pos.y + radius * 0.5f, pos.x + radius * 0.5f, pos.y + radius * 0.8f)
+                }
+                drawPath(curvePath, Color.LightGray, style = Stroke(2f))
+            }
+        }
     }
-    drawCircle(Color.White, radius * 0.13f, Offset(pos.x - radius * 0.3f + (sin(rotX)*radius*0.12f), pos.y - radius * 0.3f + (cos(rotY)*radius*0.08f)))
+    drawCircle(Color.Black.copy(0.05f), radius, pos, style = Stroke(2f))
 }
 
 @Composable
 private fun CuteButton(text: String, modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues(0.dp), onClick: () -> Unit) {
-    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF476F), contentColor = Color.White), shape = RoundedCornerShape(18.dp), modifier = modifier.height(56.dp).width(180.dp), contentPadding = padding) { Text(text, fontWeight = FontWeight.Bold) }
+    val context = LocalContext.current
+    val soundManager = remember { SoundManager(context) }
+    Button(
+        onClick = {
+            soundManager.play("toque")
+            onClick()
+        }, 
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF476F), contentColor = Color.White), 
+        shape = RoundedCornerShape(18.dp), 
+        modifier = modifier.height(56.dp).width(180.dp), 
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.matchParentSize().alpha(0.2f)) {
+                for(i in 0..5) {
+                    val y = i * (size.height / 5f)
+                    drawLine(Color.White, Offset(0f, y), Offset(size.width, y), 2f)
+                }
+            }
+            Text(text, fontWeight = FontWeight.Bold, modifier = Modifier.padding(padding))
+        }
+    }
 }
 
 private class SoundManager(context: Context) {
     private val soundPool = SoundPool.Builder().setMaxStreams(10).setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).build()).build()
     private val sounds = mutableMapOf<String, Int>()
-    init { listOf("suelo", "red", "golpe", "toque", "barrida", "golpeo", "win", "loos", "winner", "looser", "bg-music").forEach { name -> val resId = context.resources.getIdentifier(name, "raw", context.packageName); if (resId != 0) sounds[name] = soundPool.load(context, resId, 1) } }
+    private var mediaPlayer: MediaPlayer? = null
+    private val ctx = context
+
+    init {
+        listOf("suelo", "red", "golpe", "toque", "barrida", "golpeo", "win", "loos", "winner", "looser", "saque").forEach { name ->
+            val resId = context.resources.getIdentifier(name, "raw", context.packageName)
+            if (resId != 0) sounds[name] = soundPool.load(context, resId, 1)
+        }
+    }
+
+    fun startMusic() {
+        if (mediaPlayer == null) {
+            val resId = ctx.resources.getIdentifier("bg_music", "raw", ctx.packageName)
+            if (resId != 0) {
+                mediaPlayer = MediaPlayer.create(ctx, resId).apply {
+                    isLooping = true
+                    setVolume(0.4f, 0.4f)
+                    start()
+                }
+            }
+        } else if (!mediaPlayer!!.isPlaying) {
+            mediaPlayer!!.start()
+        }
+    }
+
+    fun stopMusic() {
+        mediaPlayer?.pause()
+    }
+
     fun play(name: String) { sounds[name]?.let { soundPool.play(it, 1f, 1f, 0, 0, 1f) } }
+
+    fun release() {
+        soundPool.release()
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
 }
 
 private class HapticManager(context: Context) {
@@ -479,6 +804,19 @@ private class Particle(var pos: Offset, val color: Color) {
 }
 
 private fun spawnParticles(list: MutableList<Particle>, pos: Offset, color: Color) { repeat(10) { list.add(Particle(pos, color)) } }
+
+private fun spawnConfetti(list: MutableList<Particle>, xMin: Float, xMax: Float, yBase: Float) {
+    val colors = listOf(Color.Yellow, Color.Red, Color.Cyan, Color.Green, Color.Magenta)
+    repeat(40) {
+        list.add(Particle(
+            Offset(Random.nextFloat() * (xMax - xMin) + xMin, yBase),
+            colors.random()
+        ).apply {
+            vel = Offset(Random.nextFloat() * 200f - 100f, -Random.nextFloat() * 400f - 200f)
+            life = 2.0f
+        })
+    }
+}
 
 @Composable
 private fun ResultScreen(playerScore: Int, enemyScore: Int, onHome: () -> Unit) {

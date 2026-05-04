@@ -1,5 +1,17 @@
 R_DEF: Internal format may change without notice
 local
 drawable ic_alebrije_ball
+raw barrida
+raw bg_music
+raw golpe
+raw golpeo
+raw loos
+raw looser
+raw red
+raw saque
+raw suelo
+raw toque
+raw win
+raw winner
 string app_name
 style Theme.AlebrijeVoleibol
