@@ -1,0 +1,4 @@
+- [x] Definir estructuras de cúmulos para las 8 variantes de nubes.
+- [x] Implementar nueva función `drawCloud` con capas de sombra y luz.
+- [x] Actualizar inicialización de nubes en `CourtScreen` para usar las 8 variantes.
+- [x] Verificar estética visual y compilación.

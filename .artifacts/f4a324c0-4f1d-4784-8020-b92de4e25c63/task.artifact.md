@@ -1,0 +1,6 @@
+- [ ] Cargar `ball.png` como `ImageBitmap`.
+- [ ] Reestructurar `CourtScreen` para separar el dibujo de la pelota en un nivel superior (`zIndex`).
+- [ ] Actualizar `drawAlebrijeBall` para renderizar la textura PNG con rotación.
+- [ ] Asegurar que la pelota se vea sobre las nubes y el marcador.
+- [ ] Verificar que la lógica de colisión circular se mantenga intacta.
+- [ ] Compilar y verificar el proyecto.
