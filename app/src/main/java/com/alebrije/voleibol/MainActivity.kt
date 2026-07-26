@@ -108,7 +108,7 @@ fun AlebrijePreview() {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF6EC6FF))) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawAlebrije(Offset(200f, 600f), 150f, Color(0xFFEF476F), 0f, true, 0f, Offset.Zero, 0f)
-            drawAlebrijeBall(Offset(350f, 300f), 95f, 1.5f, 0.5f, ballTexture)
+            drawAlebrijeBall(Offset(350f, 300f), 95f, 0f, ballTexture)
         }
     }
 }
@@ -243,8 +243,8 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
 
     var ballPos by remember { mutableStateOf(Offset(0f, 0f)) }
     var ballVel by remember { mutableStateOf(Offset(0f, 0f)) }
-    var ballRotX by remember { mutableFloatStateOf(0f) }
-    var ballRotY by remember { mutableFloatStateOf(0f) }
+    var ballRot by remember { mutableFloatStateOf(0f) }
+    var ballSpin by remember { mutableFloatStateOf(0f) }
     var serveWaitTimer by remember { mutableFloatStateOf(0f) }
     var serveState by remember { mutableIntStateOf(0) }
 
@@ -327,7 +327,10 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                     if (serveState > 0 || serveWaitTimer <= 0) {
                         val bGrav = if (ballVel.y < 0) gravityRising else gravityFalling
                         ballVel = ballVel.copy(y = ballVel.y + bGrav * dt); ballPos += ballVel * dt
-                        ballRotX += ballVel.x * dt * 0.06f; ballRotY += ballVel.y * dt * 0.03f
+                        
+                        // Rotación natural: fricción y acumulación
+                        ballSpin -= ballSpin * 0.5f * dt 
+                        ballRot += ballSpin * dt
                     }
                     val ballOnLeftNow = ballPos.x < width / 2
                     if (ballOnLeftPrev != ballOnLeftNow) {
@@ -350,7 +353,7 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                         p1Touches = 0; p2Touches = 0
                         soundManager.play("suelo"); haptics.vibrate(100); spawnParticles(particles, ballPos, Color.White)
                         val winnerLeft = ballPos.x > width / 2; ballPos = if (winnerLeft) Offset(width * 0.25f, 200f) else Offset(width * 0.75f, 200f)
-                        ballVel = Offset.Zero; ballRotX = 0f; ballRotY = 0f; serveWaitTimer = 2.5f; serveState = 0
+                        ballVel = Offset.Zero; ballRot = 0f; ballSpin = 0f; serveWaitTimer = 2.5f; serveState = 0
                     }
 
                     val netRectLeft = width / 2 - netWidth / 2; val netRectRight = width / 2 + netWidth / 2; val netRectTop = floorY - netHeight
@@ -425,6 +428,10 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
                             val fFact = if (isP1) (if (isS) 0.65f else 0.35f) else (if (isS) 0.9f else 0.7f)
 
                             ballVel = Offset((dx * 4f + strike.x * 1.5f + pVel.x * 0.4f) * fFact, (vImp + strike.y * 1.5f + pVel.y * 0.2f) * fFact)
+                            
+                            // Inyectar giro reactivo basado en el impacto
+                            ballSpin = (strike.x * 5f + dx * 10f).coerceIn(-1500f, 1500f)
+
                             soundManager.play(if (isS) "golpeo" else "golpe"); spawnParticles(particles, ballPos, if (isP1) Color(0xFFEF476F) else Color(0xFF2EC4B6))
                             if (isP1) p1Touches++ else p2Touches++
                             
@@ -543,7 +550,7 @@ private fun CourtScreen(mode: GameMode, difficulty: String, onFinish: (Int, Int)
         }
 
         Canvas(modifier = Modifier.fillMaxSize().zIndex(20f)) {
-            drawAlebrijeBall(ballPos, ballRadius, ballRotX, ballRotY, ballTexture)
+            drawAlebrijeBall(ballPos, ballRadius, ballRot, ballTexture)
         }
 
         if (showSettings) {
@@ -758,9 +765,9 @@ private fun DrawScope.drawAlebrije(pos: Offset, size: Float, color: Color, walk:
     }
 }
 
-private fun DrawScope.drawAlebrijeBall(pos: Offset, radius: Float, rotX: Float, rotY: Float, texture: ImageBitmap) {
+private fun DrawScope.drawAlebrijeBall(pos: Offset, radius: Float, rotation: Float, texture: ImageBitmap) {
     withTransform({
-        rotate(rotX * 50f + rotY * 10f, pos)
+        rotate(rotation, pos)
     }) {
         drawImage(
             image = texture,

@@ -1,6 +1,6 @@
-- [ ] Cargar `ball.png` como `ImageBitmap`.
-- [ ] Reestructurar `CourtScreen` para separar el dibujo de la pelota en un nivel superior (`zIndex`).
-- [ ] Actualizar `drawAlebrijeBall` para renderizar la textura PNG con rotación.
-- [ ] Asegurar que la pelota se vea sobre las nubes y el marcador.
-- [ ] Verificar que la lógica de colisión circular se mantenga intacta.
+- [ ] Añadir variables de `ballRot` (ángulo acumulado) y `ballSpin` (velocidad de giro).
+- [ ] Implementar la actualización de rotación y fricción en el bucle principal.
+- [ ] Ajustar `checkCollision` para que los impactos inyecten rotación reactiva.
+- [ ] Simplificar la función `drawAlebrijeBall` para usar el ángulo directo.
+- [ ] Verificar la fluidez visual del giro.
 - [ ] Compilar y verificar el proyecto.

@@ -26,6 +26,7 @@
         android:label="Alebrije Vóleibol"
         android:roundIcon="@drawable/ic_alebrije_ball"
         android:supportsRtl="true"
+        android:testOnly="true"
         android:theme="@style/Theme.AlebrijeVoleibol" >
         <activity
             android:name="com.alebrije.voleibol.MainActivity"

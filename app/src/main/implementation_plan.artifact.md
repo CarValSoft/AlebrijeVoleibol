@@ -1,6 +1,6 @@
-# Capas de Visualización y Reemplazo de Pelota PNG
+# Control de Rotación Natural y Reactiva de la Pelota
 
-Este plan aborda la reestructuración de las capas de dibujo para que la pelota aparezca por encima de todos los elementos (marcador y nubes) y sustituye la representación procedural de la pelota por una textura PNG.
+Este plan aborda la solicitud del usuario de reducir la velocidad de rotación de la pelota, haciéndola más natural y reactiva a los impactos recibidos.
 
 ## Cambios Propuestos
 
@@ -8,28 +8,23 @@ Este plan aborda la reestructuración de las capas de dibujo para que la pelota 
 
 #### [MODIFY] [MainActivity.kt](file:///E:/dev/android_studio/AlebrijeVoleibol/v1/app/src/main/java/com/alebrije/voleibol/MainActivity.kt)
 
-1.  **Carga de la nueva pelota**:
-    *   Cargar `R.drawable.ball` como `ImageBitmap` en `CourtScreen` usando `remember`.
+1.  **Rediseño de la Acumulación de Rotación**:
+    *   Sustituir la actualización constante basada en velocidad por una variable de "spin" (giro) que se activa en el impacto.
+    *   `ballRotAccum`: Nueva variable para acumular el ángulo total.
+    *   `ballSpin`: Velocidad de rotación actual.
 
-2.  **Reestructuración de Capas (Z-Index)**:
-    *   Actualmente el marcador está en un `Box` con `zIndex(10f)` sobre el `Canvas`.
-    *   Para que la pelota esté encima del marcador, se dividirá el dibujo en dos `Canvas`:
-        *   **Canvas 1 (Fondo/Juego)**: Nubes, mar, arena, red, jugadores, partículas.
-        *   **Box Intermedio**: Marcador (`zIndex(10f)`).
-        *   **Canvas 2 (Pelota)**: Solo el dibujo de la pelota (`zIndex(20f)`).
+2.  **Lógica en el bucle de juego**:
+    *   Reducir drásticamente los multiplicadores de rotación.
+    *   Implementar una fricción de rotación (freno natural) para que el giro se detenga gradualmente si no recibe nuevos impactos.
+    *   Ajustar la rotación para que dependa principalmente de la dirección del golpe (`strike`) y no tanto de la velocidad de traslación.
 
-3.  **Rediseño de `drawAlebrijeBall`**:
-    *   Sustituir el dibujo de círculos y gajos por `drawImage`.
-    *   Aplicar rotación (`rotate`) sobre el centro de la pelota.
-    *   Ajustar el destino para que coincida exactamente con el `ballRadius` actual, manteniendo la zona de golpeo circular intacta (la lógica de colisión no cambia, solo el renderizado).
-
-4.  **Optimización**:
-    *   Mantener la transparencia original de `ball.png` al usar `drawImage` sin filtros de color.
+3.  **Ajuste en `drawAlebrijeBall`**:
+    *   Eliminar los multiplicadores internos (`* 50f`, `* 10f`) que amplificaban demasiado el ángulo.
+    *   Usar directamente el ángulo acumulado en grados.
 
 ## Plan de Verificación
 
 ### Manual Verification
-1.  **Capas**: Lanzar la pelota hacia arriba y verificar que pase visualmente por "encima" del marcador de puntuación.
-2.  **Gráficos**: Confirmar que la nueva textura de la pelota se ve nítida y conserva sus bordes transparentes.
-3.  **Animación**: Verificar que la pelota sigue rotando en el aire de forma fluida.
-4.  **Física**: Comprobar que los rebotes siguen siendo precisos y circulares.
+1.  **Impacto**: Golpear la pelota y observar que comienza a girar de forma coherente con la fuerza del golpe.
+2.  **Decaimiento**: Verificar que la rotación disminuye gradualmente mientras la pelota vuela sin ser tocada.
+3.  **Límites**: Asegurar que la rotación nunca alcance velocidades visualmente irreales ("borrosas").
